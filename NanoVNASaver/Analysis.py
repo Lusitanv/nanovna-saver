@@ -21,6 +21,8 @@ from PyQt5 import QtWidgets
 from NanoVNASaver.RFTools import RFTools
 from scipy import signal
 import numpy as np
+from PyQt5.Qt import QEventLoop
+from PyQt5.Qt import QTimer
 
 logger = logging.getLogger(__name__)
 
@@ -1164,6 +1166,9 @@ class PeakSearchAnalysis(Analysis):
 
 
 class VSWRAnalysis(Analysis):
+    max_dips_shown=3
+    vswr_limit = 1.5
+    
     class QHLine(QtWidgets.QFrame):
         def __init__(self):
             super().__init__()
@@ -1177,7 +1182,7 @@ class VSWRAnalysis(Analysis):
         self._widget.setLayout(self.layout)
 
         self.input_vswr_limit = QtWidgets.QDoubleSpinBox()
-        self.input_vswr_limit.setValue(1.5)
+        self.input_vswr_limit.setValue(self.vswr_limit)
         self.input_vswr_limit.setSingleStep(0.1)
         self.input_vswr_limit.setMinimum(1)
         self.input_vswr_limit.setMaximum(25)
@@ -1191,25 +1196,20 @@ class VSWRAnalysis(Analysis):
         self.results_label = QtWidgets.QLabel("<b>Results</b>")
         self.layout.addRow(self.results_label)
 
-    def runAnalysis(self):
-        max_dips_shown = 3
-        data = []
-        for d in self.app.data:
-            data.append(d.vswr)
-        # min_idx = np.argmin(data)
-        #
-        # logger.debug("Minimum at %d", min_idx)
-        # logger.debug("Value at minimum: %f", data[min_idx])
-        # logger.debug("Frequency: %d", self.app.data[min_idx].freq)
-        #
-        # if self.checkbox_move_marker.isChecked():
-        #     self.app.markers[0].setFrequency(str(self.app.data[min_idx].freq))
-        #     self.app.markers[0].frequencyInput.setText(str(self.app.data[min_idx].freq))
+    @staticmethod
+    def _findMinimuns(data, threshold):
+        '''
+        
+        return array of tuple (start index, lowest value, end index)
+        
+        :param data: array of float
+        :param threshold: 
+        '''
 
         minimums = []
         min_start = -1
         min_idx = -1
-        threshold = self.input_vswr_limit.value()
+        
         min_val = threshold
         for i in range(len(data)):
             d = data[i]
@@ -1227,6 +1227,30 @@ class VSWRAnalysis(Analysis):
                 min_val = threshold
 
         logger.debug("Found %d sections under %f threshold", len(minimums), threshold)
+        return minimums
+        
+
+    def runAnalysis(self, ):
+        
+        max_dips_shown = self.max_dips_shown
+        data = []
+        for d in self.app.data:
+            vswr = d.vswr
+            if vswr < 1:
+                vswr = float('inf')
+            data.append(vswr)
+        # min_idx = np.argmin(data)
+        #
+        # logger.debug("Minimum at %d", min_idx)
+        # logger.debug("Value at minimum: %f", data[min_idx])
+        # logger.debug("Frequency: %d", self.app.data[min_idx].freq)
+        #
+        # if self.checkbox_move_marker.isChecked():
+        #     self.app.markers[0].setFrequency(str(self.app.data[min_idx].freq))
+        #     self.app.markers[0].frequencyInput.setText(str(self.app.data[min_idx].freq))
+        threshold = self.input_vswr_limit.value()
+        minimums = self._findMinimuns(data, threshold)
+        
 
         results_header = self.layout.indexOf(self.results_label)
         logger.debug("Results start at %d, out of %d", results_header, self.layout.rowCount())
@@ -1248,6 +1272,8 @@ class VSWRAnalysis(Analysis):
                 dips.remove(dips[min_idx])
                 minimums.remove(minimums[min_idx])
             minimums = best_dips
+        self.minimums = minimums
+        self.data = data
 
         if len(minimums) > 0:
             for m in minimums:
@@ -1267,3 +1293,56 @@ class VSWRAnalysis(Analysis):
             self.layout.removeRow(self.layout.rowCount()-1)  # Remove the final separator line
         else:
             self.layout.addRow(QtWidgets.QLabel("No areas found with VSWR below " + str(round(threshold, 2)) + "."))
+
+
+class MagLoopAnalysis(VSWRAnalysis):
+    max_dips_shown = 1
+    vswr_limit = 2.56
+    
+    def _get_freq_from_index(self, index):
+        
+        return self.app.data[index].freq
+    
+    def _get_new_sweep(self, start,end,factor=5, hamband=False):
+        '''
+        
+        '''
+        # TODO: find near hamband and include
+        band = end-start
+        if band <= 1000:
+            band = 3000
+        newstart = start-band*factor/2
+        newend = end+band*factor/2
+        return newstart,newend
+
+    def runAnalysis(self):
+
+        super().runAnalysis()
+
+        if self.minimums:
+            for m in self.minimums:
+                start, lowest, end = map(self._get_freq_from_index, m)
+
+                if start != end:
+                    Q = lowest/(end-start)
+                    self.layout.addRow("Q",QtWidgets.QLabel("{}".format(int(Q))))
+                newstart,newend = self._get_new_sweep(start,end)
+                self.app.sweepStartInput.setText(RFTools.formatSweepFrequency(int(newstart)))
+                self.app.sweepEndInput.setText(RFTools.formatSweepFrequency(int(newend)))
+                self.app.sweepStartInput.textChanged.emit(self.app.sweepStartInput.text())
+                
+                # todo, change sweep and run sweep
+        else:
+            # No minimum, find
+            self.app.sweepStartInput.setText("3M")
+            self.app.sweepEndInput.setText("30M")
+            self.app.sweepStartInput.textChanged.emit(self.app.sweepStartInput.text())
+
+        if self.app.worker.continuousSweep:
+            self.app.stopSweep()
+            loop = QEventLoop()
+            QTimer.singleShot(500, loop.quit)
+            loop.exec_()
+            self.app.sweep()
+            
+            
