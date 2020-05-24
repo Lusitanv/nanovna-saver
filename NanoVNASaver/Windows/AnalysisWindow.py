@@ -18,9 +18,9 @@ import logging
 
 from PyQt5 import QtWidgets, QtCore
 
-from NanoVNASaver.Analysis import Analysis, LowPassAnalysis, HighPassAnalysis, \
-    BandPassAnalysis, BandStopAnalysis, VSWRAnalysis, \
-    SimplePeakSearchAnalysis
+from NanoVNASaver.Analysis import Analysis, BandPassAnalysis, \
+    BandStopAnalysis, HighPassAnalysis, LowPassAnalysis, \
+    MagLoopAnalysis, SimplePeakSearchAnalysis, VSWRAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class AnalysisWindow(QtWidgets.QWidget):
         # self.analysis_list.addItem("Peak search", PeakSearchAnalysis(self.app))
         self.analysis_list.addItem("Peak search", SimplePeakSearchAnalysis(self.app))
         self.analysis_list.addItem("VSWR analysis", VSWRAnalysis(self.app))
+        self.analysis_list.addItem("MagLoop analysis", MagLoopAnalysis(self.app))
         select_analysis_layout.addRow("Analysis type", self.analysis_list)
         self.analysis_list.currentIndexChanged.connect(self.updateSelection)
 
