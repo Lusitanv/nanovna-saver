@@ -23,7 +23,6 @@ from PyQt5.QtCore import pyqtSlot, pyqtSignal
 
 import NanoVNASaver
 from NanoVNASaver.Calibration import Calibration
-from NanoVNASaver.Hardware import VNA, InvalidVNA
 from NanoVNASaver.RFTools import RFTools, Datapoint
 
 logger = logging.getLogger(__name__)
